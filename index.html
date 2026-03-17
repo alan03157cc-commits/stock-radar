@@ -6,7 +6,6 @@
 <title>選股雷達 — 真實資料版</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
-/* ... (為了版面簡潔，CSS 樣式與你原本的完全相同，未做更動) ... */
 :root {
   --bg: #0a0e1a; --bg2: #0f1527; --bg3: #151d35;
   --surface: #1a2340; --surface2: #1e2a4a;
@@ -151,9 +150,7 @@ AAPL
 NVDA
 MSFT</textarea>
         <div class="codes-hint">台股輸入純代號（如 2330），美股輸入英文代號（如 AAPL）</div>
-        <select class="select-input" id="batchMarket" style="margin-top:8px;">
-          <option value="tw">台灣股市</option>
-          <option value="us">美國股市</option>
+        <select class="select-input" id="batchMarket" style="margin-top:8px; display:none;">
           <option value="mixed">混合（自動識別）</option>
         </select>
       </div>
@@ -228,10 +225,6 @@ MSFT</textarea>
         <input class="search-input" id="singleCode" type="text"
           placeholder="輸入單一股票代號查詢，如 2330 或 AAPL"
           onkeydown="if(event.key==='Enter')lookupSingle()">
-        <select class="market-sel" id="singleMarket">
-          <option value="tw">台股</option>
-          <option value="us">美股</option>
-        </select>
         <button class="btn-search" onclick="lookupSingle()">查詢個股</button>
       </div>
 
@@ -251,13 +244,13 @@ MSFT</textarea>
 
       <div class="loading" id="loading">
         <div class="spinner"></div>
-        <div class="loading-text" id="loadingText">正在連線 Yahoo Finance...</div>
+        <div class="loading-text" id="loadingText">正在連線取得資料...</div>
       </div>
 
       <div class="empty show" id="emptyState">
         <div class="empty-icon">📡</div>
-        <div class="empty-title">請先設定後端 API 位址</div>
-        <div style="font-size:12px;">在左側填入 Render 部署後的網址，然後按「取得資料並篩選」</div>
+        <div class="empty-title">準備就緒</div>
+        <div style="font-size:12px;">點擊「取得資料並篩選」開始掃描股票</div>
       </div>
 
       <div id="stockList"></div>
@@ -297,7 +290,7 @@ MSFT</textarea>
     <div class="ind-row"><span class="ind-name">52週高點</span><span class="ind-val up" id="dp-52h">—</span></div>
     <div class="ind-row"><span class="ind-name">52週低點</span><span class="ind-val down" id="dp-52l">—</span></div>
 
-    <div class="disclaimer">⚠️ 資料來源：Yahoo Finance（延遲行情）。本系統僅供參考，不構成投資建議。</div>
+    <div class="disclaimer">⚠️ 資料來源：Yahoo Finance/TWSE（延遲行情）。本系統僅供參考，不構成投資建議。</div>
   </div>
 </div>
 
@@ -405,7 +398,6 @@ async function runScreener() {
   const base = getApiBase();
   if (!base || base === 'https://your-app.onrender.com') { showToast('❌ 請先填入 Render 後端網址！'); return; }
   const codeRaw = document.getElementById('codeList').value;
-  const market = document.getElementById('batchMarket').value;
   const codes = codeRaw.split('\n').map(c => c.trim()).filter(Boolean);
   if (codes.length === 0) { showToast('請輸入至少一個股票代號'); return; }
 
@@ -421,9 +413,8 @@ async function runScreener() {
 
   for (const code of codes) {
     try {
-      let mkt = market;
-      if (market === 'mixed') mkt = /^\d+$/.test(code) ? 'tw' : 'us';
-      const url = `${base}/api/stock/${encodeURIComponent(code)}?market=${mkt}`;
+      // 修正點 1：拿掉 ?market 參數，完全配合後端的 @app.route("/api/stock/<code>")
+      const url = `${base}/api/stock/${encodeURIComponent(code)}`;
       const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
       if (res.ok) { const data = await res.json(); allData.push(data); }
     } catch (e) { console.warn(`[跳過] ${code}:`, e.message); }
@@ -444,7 +435,6 @@ async function runScreener() {
 async function lookupSingle() {
   const base = getApiBase();
   const code = document.getElementById('singleCode').value.trim();
-  const market = document.getElementById('singleMarket').value;
   if (!code) { showToast('請輸入股票代號'); return; }
   if (!base || base === 'https://your-app.onrender.com') { showToast('❌ 請先填入後端網址並儲存'); return; }
 
@@ -453,7 +443,8 @@ async function lookupSingle() {
   document.getElementById('emptyState').style.display = 'none';
 
   try {
-    const url = `${base}/api/stock/${encodeURIComponent(code)}?market=${market}`;
+    // 修正點 2：同樣拿掉 ?market 參數
+    const url = `${base}/api/stock/${encodeURIComponent(code)}`;
     const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
     if (!res.ok) { const err = await res.json(); showToast(`❌ ${err.error || '查詢失敗'}`); return; }
     const data = await res.json();
@@ -475,8 +466,8 @@ function renderList(list) {
   document.getElementById('emptyState').style.display = 'none';
   document.getElementById('stockList').innerHTML = list.map(s => {
     const isUp = (s.change || 0) >= 0;
-    const flag = s.market === 'tw' ? '🇹🇼' : '🇺🇸';
-    const currency = s.market === 'tw' ? 'NT$' : '$';
+    const flag = s.market === 'tw' ? '🇹🇼' : '📈';
+    const currency = s.market === 'tw' ? 'NT$' : '';
     const changeStr = s.change !== null ? (isUp ? '+' : '') + s.change.toFixed(2) + '%' : '—';
     const badges = (s.signals || []).slice(0,3).map(sig => `<span class="badge badge-g">${sig}</span>`).join('');
     return `
@@ -497,8 +488,8 @@ function openPanelByCode(code) { const s = allData.find(d => d.code === code); i
 
 function openPanel(s) {
   const isUp = (s.change || 0) >= 0;
-  const currency = s.market === 'tw' ? 'NT$ ' : '$ ';
-  const flag = s.market === 'tw' ? '🇹🇼 ' : '🇺🇸 ';
+  const currency = s.market === 'tw' ? 'NT$ ' : '';
+  const flag = s.market === 'tw' ? '🇹🇼 ' : '📈 ';
 
   document.getElementById('dp-code').textContent = flag + s.code;
   document.getElementById('dp-name').textContent = s.name;
@@ -568,6 +559,8 @@ function drawChart(s) {
 function closePanel() { document.getElementById('detailPanel').classList.remove('open'); }
 function showToast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 2800); }
 
+// 剛載入時也預防性觸發一次測試連線
+setTimeout(testApi, 1500);
 updateLabels();
 </script>
 </body>
